@@ -319,6 +319,7 @@ func (f *Framer) ReadFrame(chunk []byte, callback func(http2.Frame) error) {
 
 	chunk = append(f.chunkBuf, chunk...)
 	if len(chunk) < frameHeaderLen {
+		f.chunkBuf = chunk
 		return
 	}
 

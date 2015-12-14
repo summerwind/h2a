@@ -23,11 +23,11 @@ type Peer struct {
 	ID   int
 }
 
-func NewPeer(conn net.Conn, id int) Peer {
-	var peer Peer
-	peer.Conn = conn
-	peer.ID = id
-
+func NewPeer(conn net.Conn, id int) *Peer {
+	peer := &Peer{
+		Conn: conn,
+		ID:   id,
+	}
 	return peer
 }
 
@@ -560,27 +560,53 @@ func main() {
 	}
 }
 
-func handleConnection(remote Peer, originAddr string) {
+func handleConnection(remote *Peer, originAddr string) {
+	var dumper *FrameDumper
+	var origin *Peer
+
 	defer remote.Conn.Close()
 
-	config := &tls.Config{}
-	config.NextProtos = append(config.NextProtos, "h2")
-	config.InsecureSkipVerify = true
+	remoteCh, remoteErrCh := handlePeer(remote)
 
-	dialer := new(net.Dialer)
-	conn, err := tls.DialWithDialer(dialer, "tcp", originAddr, config)
-	if err != nil {
-		logger.LogFrame(true, remote.ID, 0, "Unable to connect to the origin: %s", err)
+	select {
+	case chunk := <-remoteCh:
+		connState := remote.Conn.(*tls.Conn).ConnectionState()
+
+		config := &tls.Config{}
+		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
+		config.CipherSuites = []uint16{connState.CipherSuite}
+		config.ServerName = connState.ServerName
+		config.InsecureSkipVerify = true
+
+		dialer := new(net.Dialer)
+		conn, err := tls.DialWithDialer(dialer, "tcp", originAddr, config)
+		if err != nil {
+			logger.LogFrame(true, remote.ID, 0, "Unable to connect to the origin: %s", err)
+			return
+		}
+
+		origin = NewPeer(conn, remote.ID)
+		defer origin.Conn.Close()
+
+		_, err = origin.Conn.Write(chunk)
+		if err != nil {
+			logger.LogFrame(true, remote.ID, 0, "Unable to proxy data: %s", err)
+			return
+		}
+
+		dumper = NewFrameDumper(remote.ID)
+		dumper.Dump(chunk, true)
+
+	case err := <-remoteErrCh:
+		if err == io.EOF {
+			logger.LogFrame(true, remote.ID, 0, "Closed")
+		} else {
+			logger.LogFrame(true, remote.ID, 0, "Error: %s", err)
+		}
 		return
 	}
 
-	origin := NewPeer(conn, remote.ID)
-	defer origin.Conn.Close()
-
-	remoteCh, remoteErrCh := handlePeer(remote)
 	originCh, originErrCh := handlePeer(origin)
-
-	dumper := NewFrameDumper(remote.ID)
 
 	for {
 		select {
@@ -621,7 +647,7 @@ func handleConnection(remote Peer, originAddr string) {
 	}
 }
 
-func handlePeer(peer Peer) (<-chan []byte, <-chan error) {
+func handlePeer(peer *Peer) (<-chan []byte, <-chan error) {
 	peerCh := make(chan []byte)
 	peerErrCh := make(chan error, 1)
 

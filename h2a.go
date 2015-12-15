@@ -567,6 +567,7 @@ func handleConnection(remote *Peer, originAddr string) {
 	defer remote.Conn.Close()
 
 	remoteCh, remoteErrCh := handlePeer(remote)
+	logger.LogFrame(true, remote.ID, 0, "Connected")
 
 	select {
 	case chunk := <-remoteCh:
@@ -577,6 +578,8 @@ func handleConnection(remote *Peer, originAddr string) {
 		config.CipherSuites = []uint16{connState.CipherSuite}
 		config.ServerName = connState.ServerName
 		config.InsecureSkipVerify = true
+
+		logger.LogFrame(true, remote.ID, 0, "Negotiated Protocol: %s", connState.NegotiatedProtocol)
 
 		dialer := new(net.Dialer)
 		conn, err := tls.DialWithDialer(dialer, "tcp", originAddr, config)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -537,7 +536,6 @@ func main() {
 	config := &tls.Config{}
 	config.Certificates = []tls.Certificate{cert}
 	config.NextProtos = append(config.NextProtos, "h2-14", "h2-15", "h2-16", "h2")
-	config.Rand = rand.Reader
 
 	server, err := tls.Listen("tcp", addr, config)
 	if err != nil {

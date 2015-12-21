@@ -11,3 +11,5 @@ all:
 	zip h2a_linux_amd64.zip -r h2a_linux_amd64
 	rm -rf h2a_linux_amd64
 
+clean:
+	rm ./*.zip

@@ -17,6 +17,32 @@ const VERSION = "v0.0.1"
 
 const frameHeaderLen = 9
 
+var flagName = map[http2.FrameType]map[http2.Flags]string{
+	http2.FrameData: {
+		http2.FlagDataEndStream: "END_STREAM",
+		http2.FlagDataPadded:    "PADDED",
+	},
+	http2.FrameHeaders: {
+		http2.FlagHeadersEndStream:  "END_STREAM",
+		http2.FlagHeadersEndHeaders: "END_HEADERS",
+		http2.FlagHeadersPadded:     "PADDED",
+		http2.FlagHeadersPriority:   "PRIORITY",
+	},
+	http2.FrameSettings: {
+		http2.FlagSettingsAck: "ACK",
+	},
+	http2.FramePushPromise: {
+		http2.FlagPushPromiseEndHeaders: "END_HEADERS",
+		http2.FlagPushPromisePadded:     "PADDED",
+	},
+	http2.FramePing: {
+		http2.FlagPingAck: "ACK",
+	},
+	http2.FrameContinuation: {
+		http2.FlagContinuationEndHeaders: "END_HEADERS",
+	},
+}
+
 type Peer struct {
 	Conn net.Conn
 	ID   int
@@ -80,6 +106,7 @@ func (fd *FrameDumper) Dump(chunk []byte, remote bool) {
 func (fd *FrameDumper) DumpFrameHeader(frame http2.Frame, remote bool) {
 	header := frame.Header()
 	frameType := header.Type.String()
+	frameFlags := header.Flags
 
 	if remote {
 		frameType = color("cyan", frameType)
@@ -88,7 +115,18 @@ func (fd *FrameDumper) DumpFrameHeader(frame http2.Frame, remote bool) {
 	}
 
 	msg := "%s Frame <Length:%d, Flags:0x%x>"
-	logger.LogFrame(remote, fd.ConnectionID, header.StreamID, msg, frameType, header.Length, header.Flags)
+	logger.LogFrame(remote, fd.ConnectionID, header.StreamID, msg, frameType, header.Length, frameFlags)
+
+	if frameFlags > 0 {
+		logger.LogFrameInfo("Flags:")
+		candidateFlags := flagName[header.Type]
+		for f, n := range candidateFlags {
+			if (f & frameFlags) != 0 {
+				logger.LogFrameInfo("  %s (0x%x)", n, f)
+			}
+		}
+
+	}
 }
 
 func (fd *FrameDumper) DumpDataFrame(frame *http2.DataFrame, remote bool) {

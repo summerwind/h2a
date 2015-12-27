@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"net"
@@ -40,6 +41,18 @@ type FrameDumper struct {
 
 	remoteFlowController *FlowController
 	originFlowController *FlowController
+}
+
+func (fd *FrameDumper) Connect() {
+	logger.LogFrame(true, fd.ConnectionID, 0, "Connected")
+}
+
+func (fd *FrameDumper) Close() {
+	logger.LogFrame(true, fd.ConnectionID, 0, "Closed")
+}
+
+func (fd *FrameDumper) ConnectionState(state tls.ConnectionState) {
+	logger.LogFrame(true, fd.ConnectionID, 0, "Negotiated Protocol: %s", state.NegotiatedProtocol)
 }
 
 func (fd *FrameDumper) Dump(chunk []byte, remote bool) {
@@ -308,6 +321,8 @@ func NewFrameDumper(addr net.Addr) *FrameDumper {
 		remoteFlowController: NewFlowController(),
 		originFlowController: NewFlowController(),
 	}
+
+	dumper.Connect()
 
 	return dumper
 }

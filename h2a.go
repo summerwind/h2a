@@ -92,22 +92,22 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 	defer remoteConn.Close()
 
 	dumper := NewFrameDumper(remoteConn.RemoteAddr())
+	defer dumper.Close()
+
 	remoteID := remoteConn.RemoteAddr().String()
 
 	remoteCh, remoteErrCh := handleConnection(remoteConn)
-	logger.LogFrame(true, remoteID, 0, "Connected")
 
 	select {
 	case chunk := <-remoteCh:
 		connState := remoteConn.(*tls.Conn).ConnectionState()
+		dumper.ConnectionState(connState)
 
 		config := &tls.Config{}
 		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
 		config.CipherSuites = []uint16{connState.CipherSuite}
 		config.ServerName = connState.ServerName
 		config.InsecureSkipVerify = true
-
-		logger.LogFrame(true, remoteID, 0, "Negotiated Protocol: %s", connState.NegotiatedProtocol)
 
 		dialer := new(net.Dialer)
 		originConn, err = tls.DialWithDialer(dialer, "tcp", originAddr, config)
@@ -127,12 +127,9 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 		dumper.Dump(chunk, true)
 
 	case err := <-remoteErrCh:
-		if err == io.EOF {
-			logger.LogFrame(true, remoteID, 0, "Closed")
-		} else {
+		if err != io.EOF {
 			logger.LogFrame(true, remoteID, 0, "Error: %s", err)
 		}
-		fmt.Println(err)
 		return
 	}
 
@@ -150,9 +147,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 			dumper.Dump(chunk, true)
 
 		case err := <-remoteErrCh:
-			if err == io.EOF {
-				logger.LogFrame(true, remoteID, 0, "Closed")
-			} else {
+			if err != io.EOF {
 				logger.LogFrame(true, remoteID, 0, "Error: %s", err)
 			}
 			return
@@ -167,9 +162,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 			dumper.Dump(chunk, false)
 
 		case err := <-originErrCh:
-			if err == io.EOF {
-				logger.LogFrame(false, remoteID, 0, "Closed")
-			} else {
+			if err != io.EOF {
 				logger.LogFrame(false, remoteID, 0, "Error: %s", err)
 			}
 			return

@@ -10,14 +10,14 @@ type StreamLogger struct {
 	indent string
 }
 
-func (sl *StreamLogger) LogFrame(remote bool, connID int, streamID uint32, format string, a ...interface{}) {
+func (sl *StreamLogger) LogFrame(remote bool, connID string, streamID uint32, format string, a ...interface{}) {
 	var remoteStr string
 	if remote {
 		remoteStr = color("cyan", "=>")
 	} else {
 		remoteStr = color("magenta", "<=")
 	}
-	fmt.Fprintf(os.Stdout, "%s [%3d] [%3d] %s\n", remoteStr, connID, streamID, fmt.Sprintf(format, a...))
+	fmt.Fprintf(os.Stdout, "%s [%s] [%3d] %s\n", remoteStr, connID, streamID, fmt.Sprintf(format, a...))
 }
 
 func (sl *StreamLogger) LogFrameInfo(format string, a ...interface{}) {

@@ -32,7 +32,7 @@ var flagName = map[http2.FrameType]map[http2.Flags]string{
 }
 
 type FrameDumper struct {
-	ConnectionID int
+	ConnectionID string
 
 	remoteFramer *Framer
 	originFramer *Framer
@@ -297,7 +297,7 @@ func (fd *FrameDumper) DumpContinuationFrame(frame *http2.ContinuationFrame, rem
 	})
 }
 
-func NewFrameDumper(id int) *FrameDumper {
+func NewFrameDumper(id string) *FrameDumper {
 	dumper := &FrameDumper{
 		ConnectionID: id,
 

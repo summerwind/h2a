@@ -12,8 +12,6 @@ import (
 const VERSION = "v0.0.2"
 
 func main() {
-	conn_id := 0
-
 	port := flag.Int("p", 0, "")
 	ip := flag.String("i", "127.0.0.1", "")
 	originPort := flag.Int("P", 0, "")
@@ -83,8 +81,7 @@ func main() {
 			continue
 		}
 
-		conn_id++
-		remote := NewPeer(conn, conn_id)
+		remote := NewPeer(conn, conn.RemoteAddr().String())
 		go handleConnection(remote, origin)
 	}
 }

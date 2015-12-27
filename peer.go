@@ -6,13 +6,13 @@ import (
 
 type Peer struct {
 	Conn net.Conn
-	ID   int
+	ID   string
 }
 
-func NewPeer(conn net.Conn, id int) *Peer {
+func NewPeer(conn net.Conn, ID string) *Peer {
 	peer := &Peer{
 		Conn: conn,
-		ID:   id,
+		ID:   ID,
 	}
 	return peer
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
+	"net"
 )
 
 var flagName = map[http2.FrameType]map[http2.Flags]string{
@@ -297,9 +298,9 @@ func (fd *FrameDumper) DumpContinuationFrame(frame *http2.ContinuationFrame, rem
 	})
 }
 
-func NewFrameDumper(id string) *FrameDumper {
+func NewFrameDumper(addr net.Addr) *FrameDumper {
 	dumper := &FrameDumper{
-		ConnectionID: id,
+		ConnectionID: addr.String(),
 
 		remoteFramer: NewFramer(true),
 		originFramer: NewFramer(false),

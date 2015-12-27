@@ -75,29 +75,31 @@ func main() {
 	defer server.Close()
 
 	for {
-		conn, err := server.Accept()
+		remoteConn, err := server.Accept()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Unable to accept: %s", err)
 			continue
 		}
 
-		remote := NewPeer(conn, conn.RemoteAddr().String())
-		go handleConnection(remote, origin)
+		go handlePeer(remoteConn, origin)
 	}
 }
 
-func handleConnection(remote *Peer, originAddr string) {
-	var dumper *FrameDumper
-	var origin *Peer
+func handlePeer(remoteConn net.Conn, originAddr string) {
+	var originConn net.Conn
+	var err error
 
-	defer remote.Conn.Close()
+	defer remoteConn.Close()
 
-	remoteCh, remoteErrCh := handlePeer(remote)
-	logger.LogFrame(true, remote.ID, 0, "Connected")
+	dumper := NewFrameDumper(remoteConn.RemoteAddr())
+	remoteID := remoteConn.RemoteAddr().String()
+
+	remoteCh, remoteErrCh := handleConnection(remoteConn)
+	logger.LogFrame(true, remoteID, 0, "Connected")
 
 	select {
 	case chunk := <-remoteCh:
-		connState := remote.Conn.(*tls.Conn).ConnectionState()
+		connState := remoteConn.(*tls.Conn).ConnectionState()
 
 		config := &tls.Config{}
 		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
@@ -105,95 +107,94 @@ func handleConnection(remote *Peer, originAddr string) {
 		config.ServerName = connState.ServerName
 		config.InsecureSkipVerify = true
 
-		logger.LogFrame(true, remote.ID, 0, "Negotiated Protocol: %s", connState.NegotiatedProtocol)
+		logger.LogFrame(true, remoteID, 0, "Negotiated Protocol: %s", connState.NegotiatedProtocol)
 
 		dialer := new(net.Dialer)
-		conn, err := tls.DialWithDialer(dialer, "tcp", originAddr, config)
+		originConn, err = tls.DialWithDialer(dialer, "tcp", originAddr, config)
 		if err != nil {
-			logger.LogFrame(true, remote.ID, 0, "Unable to connect to the origin: %s", err)
+			logger.LogFrame(true, remoteID, 0, "Unable to connect to the origin: %s", err)
 			return
 		}
 
-		origin = NewPeer(conn, remote.ID)
-		defer origin.Conn.Close()
+		defer originConn.Close()
 
-		_, err = origin.Conn.Write(chunk)
+		_, err = originConn.Write(chunk)
 		if err != nil {
-			logger.LogFrame(true, remote.ID, 0, "Unable to proxy data: %s", err)
+			logger.LogFrame(true, remoteID, 0, "Unable to proxy data: %s", err)
 			return
 		}
 
-		dumper = NewFrameDumper(remote.ID)
 		dumper.Dump(chunk, true)
 
 	case err := <-remoteErrCh:
 		if err == io.EOF {
-			logger.LogFrame(true, remote.ID, 0, "Closed")
+			logger.LogFrame(true, remoteID, 0, "Closed")
 		} else {
-			logger.LogFrame(true, remote.ID, 0, "Error: %s", err)
+			logger.LogFrame(true, remoteID, 0, "Error: %s", err)
 		}
+		fmt.Println(err)
 		return
 	}
 
-	originCh, originErrCh := handlePeer(origin)
+	originCh, originErrCh := handleConnection(originConn)
 
 	for {
 		select {
 		case chunk := <-remoteCh:
-			_, err := origin.Conn.Write(chunk)
+			_, err := originConn.Write(chunk)
 			//fmt.Printf("Write to origin: %x byte\n", chunk)
 			if err != nil {
-				logger.LogFrame(true, remote.ID, 0, "Unable to proxy data: %s", err)
+				logger.LogFrame(true, remoteID, 0, "Unable to proxy data: %s", err)
 				return
 			}
 			dumper.Dump(chunk, true)
 
 		case err := <-remoteErrCh:
 			if err == io.EOF {
-				logger.LogFrame(true, remote.ID, 0, "Closed")
+				logger.LogFrame(true, remoteID, 0, "Closed")
 			} else {
-				logger.LogFrame(true, remote.ID, 0, "Error: %s", err)
+				logger.LogFrame(true, remoteID, 0, "Error: %s", err)
 			}
 			return
 
 		case chunk := <-originCh:
-			_, err := remote.Conn.Write(chunk)
+			_, err := remoteConn.Write(chunk)
 			//fmt.Printf("Write to remote: %x byte\n", chunk)
 			if err != nil {
-				logger.LogFrame(false, remote.ID, 0, "Unable to proxy data: %s", err)
+				logger.LogFrame(false, remoteID, 0, "Unable to proxy data: %s", err)
 				return
 			}
 			dumper.Dump(chunk, false)
 
 		case err := <-originErrCh:
 			if err == io.EOF {
-				logger.LogFrame(false, remote.ID, 0, "Closed")
+				logger.LogFrame(false, remoteID, 0, "Closed")
 			} else {
-				logger.LogFrame(false, remote.ID, 0, "Error: %s", err)
+				logger.LogFrame(false, remoteID, 0, "Error: %s", err)
 			}
 			return
 		}
 	}
 }
 
-func handlePeer(peer *Peer) (<-chan []byte, <-chan error) {
-	peerCh := make(chan []byte)
-	peerErrCh := make(chan error, 1)
+func handleConnection(conn net.Conn) (<-chan []byte, <-chan error) {
+	dataCh := make(chan []byte)
+	errCh := make(chan error, 1)
 
 	go func() {
 		for {
 			buf := make([]byte, 16384)
 
-			n, err := peer.Conn.Read(buf)
+			n, err := conn.Read(buf)
 			//fmt.Printf("Read: %d byte\n", n)
 			if err != nil {
-				peerErrCh <- err
+				errCh <- err
 				break
 			}
 
-			peerCh <- buf[:n]
+			dataCh <- buf[:n]
 		}
 	}()
 
-	return peerCh, peerErrCh
+	return dataCh, errCh
 }

@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 )
 
 const VERSION = "v0.0.2"
+
+var logger = log.New(os.Stderr, "", 0)
 
 func main() {
 	port := flag.Int("p", 0, "")
@@ -37,7 +40,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Fprintf(os.Stderr, "h2analyzer %s\n", VERSION)
+		logger.Printf("h2analyzer %s\n", VERSION)
 		os.Exit(0)
 	}
 
@@ -47,29 +50,25 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", *ip, *port)
 
 	if *originPort == 0 {
-		fmt.Fprintf(os.Stderr, "Origin port is not specified\n")
-		os.Exit(1)
+		logger.Fatalln("Origin port is not specified")
 	}
 	if *originHost == "" {
-		fmt.Fprintf(os.Stderr, "Origin host is not specified\n")
-		os.Exit(1)
+		logger.Fatalln("Origin host is not specified")
 	}
 	origin := fmt.Sprintf("%s:%d", *originHost, *originPort)
 
 	cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid certificate file\n")
-		os.Exit(1)
+		logger.Fatalln("Invalid certificate file")
 	}
 
 	config := &tls.Config{}
 	config.Certificates = []tls.Certificate{cert}
-	config.NextProtos = append(config.NextProtos, "h2-14", "h2-15", "h2-16", "h2")
+	config.NextProtos = append(config.NextProtos, "h2", "h2-16", "h2-15", "h2-14")
 
 	server, err := tls.Listen("tcp", addr, config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Could not bind address - %s\n", addr)
-		os.Exit(1)
+		logger.Fatalf("Could not bind address - %s\n", addr)
 	}
 
 	defer server.Close()
@@ -77,7 +76,7 @@ func main() {
 	for {
 		remoteConn, err := server.Accept()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to accept: %s", err)
+			logger.Printf("Unable to accept: %s", err)
 			continue
 		}
 
@@ -93,8 +92,6 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 
 	dumper := NewFrameDumper(remoteConn.RemoteAddr())
 	defer dumper.Close()
-
-	remoteID := remoteConn.RemoteAddr().String()
 
 	remoteCh, remoteErrCh := handleConnection(remoteConn)
 
@@ -112,7 +109,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 		dialer := new(net.Dialer)
 		originConn, err = tls.DialWithDialer(dialer, "tcp", originAddr, config)
 		if err != nil {
-			logger.LogFrame(true, remoteID, 0, "Unable to connect to the origin: %s", err)
+			logger.Printf("Unable to connect to the origin: %s", err)
 			return
 		}
 
@@ -120,7 +117,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 
 		_, err = originConn.Write(chunk)
 		if err != nil {
-			logger.LogFrame(true, remoteID, 0, "Unable to proxy data: %s", err)
+			logger.Printf("Unable to write data to the origin: %s", err)
 			return
 		}
 
@@ -128,7 +125,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 
 	case err := <-remoteErrCh:
 		if err != io.EOF {
-			logger.LogFrame(true, remoteID, 0, "Error: %s", err)
+			logger.Printf("Connection error: %s", err)
 		}
 		return
 	}
@@ -139,31 +136,29 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 		select {
 		case chunk := <-remoteCh:
 			_, err := originConn.Write(chunk)
-			//fmt.Printf("Write to origin: %x byte\n", chunk)
 			if err != nil {
-				logger.LogFrame(true, remoteID, 0, "Unable to proxy data: %s", err)
+				logger.Printf("Unable to write data to the origin: %s", err)
 				return
 			}
 			dumper.DumpFrame(chunk, true)
 
 		case err := <-remoteErrCh:
 			if err != io.EOF {
-				logger.LogFrame(true, remoteID, 0, "Error: %s", err)
+				logger.Printf("Connection error: %s", err)
 			}
 			return
 
 		case chunk := <-originCh:
 			_, err := remoteConn.Write(chunk)
-			//fmt.Printf("Write to remote: %x byte\n", chunk)
 			if err != nil {
-				logger.LogFrame(false, remoteID, 0, "Unable to proxy data: %s", err)
+				logger.Printf("Unable to write data to the connection: %s", err)
 				return
 			}
 			dumper.DumpFrame(chunk, false)
 
 		case err := <-originErrCh:
 			if err != io.EOF {
-				logger.LogFrame(false, remoteID, 0, "Error: %s", err)
+				logger.Printf("Origin error: %s", err)
 			}
 			return
 		}
@@ -179,7 +174,6 @@ func handleConnection(conn net.Conn) (<-chan []byte, <-chan error) {
 			buf := make([]byte, 16384)
 
 			n, err := conn.Read(buf)
-			//fmt.Printf("Read: %d byte\n", n)
 			if err != nil {
 				errCh <- err
 				break

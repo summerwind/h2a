@@ -378,9 +378,12 @@ func (fd *FrameDumper) PrintEvent(e *Event) {
 		return
 	}
 
-	if e.Type == EventFrame {
+	switch e.Type {
+	case EventFrame:
 		fd.PrintFrame(e)
-	} else {
+	case EventConnectionState:
+		fd.PrintConnectionState(e)
+	default:
 		fd.PrintMessage(e.StreamID, e.Message, nil, e.Remote)
 	}
 }
@@ -501,6 +504,11 @@ func (fd *FrameDumper) PrintFrame(e *Event) {
 	}
 
 	fd.PrintMessage(e.StreamID, msg, data, e.Remote)
+}
+
+func (fd *FrameDumper) PrintConnectionState(e *Event) {
+	msg := fmt.Sprintf("Negotiated Protocol: %s", e.State.NegotiatedProtocol)
+	fd.PrintMessage(e.StreamID, msg, nil, e.Remote)
 }
 
 func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {

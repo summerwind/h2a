@@ -101,7 +101,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 	select {
 	case chunk := <-remoteCh:
 		connState := remoteConn.(*tls.Conn).ConnectionState()
-		dumper.ConnectionState(connState)
+		dumper.DumpConnectionState(connState)
 
 		config := &tls.Config{}
 		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
@@ -124,7 +124,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 			return
 		}
 
-		dumper.Dump(chunk, true)
+		dumper.DumpFrame(chunk, true)
 
 	case err := <-remoteErrCh:
 		if err != io.EOF {
@@ -144,7 +144,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 				logger.LogFrame(true, remoteID, 0, "Unable to proxy data: %s", err)
 				return
 			}
-			dumper.Dump(chunk, true)
+			dumper.DumpFrame(chunk, true)
 
 		case err := <-remoteErrCh:
 			if err != io.EOF {
@@ -159,7 +159,7 @@ func handlePeer(remoteConn net.Conn, originAddr string) {
 				logger.LogFrame(false, remoteID, 0, "Unable to proxy data: %s", err)
 				return
 			}
-			dumper.Dump(chunk, false)
+			dumper.DumpFrame(chunk, false)
 
 		case err := <-originErrCh:
 			if err != io.EOF {

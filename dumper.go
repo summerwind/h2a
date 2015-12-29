@@ -9,6 +9,29 @@ import (
 	"strings"
 )
 
+func color(color string, msg string) string {
+	var code string
+
+	switch color {
+	case "red":
+		code = "\x1b[31m"
+	case "green":
+		code = "\x1b[32m"
+	case "yellow":
+		code = "\x1b[33m"
+	case "blue":
+		code = "\x1b[34m"
+	case "magenta":
+		code = "\x1b[35m"
+	case "cyan":
+		code = "\x1b[36m"
+	case "gray":
+		code = "\x1b[90m"
+	}
+
+	return fmt.Sprintf("%s%s\x1b[0m", code, msg)
+}
+
 var flagName = map[http2.FrameType]map[http2.Flags]string{
 	http2.FrameData: {
 		http2.FlagDataEndStream: "END_STREAM",

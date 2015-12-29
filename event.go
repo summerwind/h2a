@@ -7,17 +7,60 @@ import (
 	"time"
 )
 
+const (
+	EventConnect         = "connect"
+	EventClose           = "close"
+	EventConnectionState = "connection_state"
+	EventFrame           = "frame"
+)
+
+type Event struct {
+	Time         int64  `json:"time"`
+	Remote       bool   `json:"remote"`
+	RemoteAddr   net.IP `json:"remote_addr"`
+	RemotePort   int    `json:"remote_port"`
+	ConnectionID string `json:"connection_id"`
+	StreamID     uint32 `json:"stream_id"`
+	Type         string `json:"type"`
+	Message      string `json:"-"`
+	State        *State `json:"state,omitempty"`
+	Frame        *Frame `json:"frame,omitempty"`
+}
+
+func NewEvent(eventType string, remote bool, addr net.Addr, streamID uint32) *Event {
+	return &Event{
+		Time:         time.Now().UnixNano(),
+		Type:         eventType,
+		Remote:       remote,
+		RemoteAddr:   addr.(*net.TCPAddr).IP,
+		RemotePort:   addr.(*net.TCPAddr).Port,
+		ConnectionID: addr.String(),
+		StreamID:     streamID,
+		Frame:        nil,
+	}
+}
+
+type State struct {
+	NegotiatedProtocol string `json:"negotiated_protocol"`
+}
+
+func NewState(np string) *State {
+	return &State{
+		NegotiatedProtocol: np,
+	}
+}
+
 type Frame struct {
-	Time         int64         `json:"time"`
-	Remote       bool          `json:"remote"`
-	RemoteAddr   net.IP        `json:"remote_addr"`
-	RemotePort   int           `json:"remote_port"`
-	ConnectionID string        `json:"connection_id"`
-	StreamID     uint32        `json:"stream_id"`
-	Length       uint32        `json:"length"`
-	Type         FrameNameID   `json:"type"`
-	Flags        []FrameNameID `json:"flags"`
-	Payload      FramePayload  `json:"payload"`
+	Length  uint32        `json:"length"`
+	Type    FrameNameID   `json:"type"`
+	Flags   []FrameNameID `json:"flags"`
+	Payload FramePayload  `json:"payload"`
+}
+
+func NewFrame() *Frame {
+	return &Frame{
+		Flags: []FrameNameID{},
+	}
 }
 
 type FramePayload interface{}
@@ -54,7 +97,7 @@ type PingFramePayload struct {
 
 type GoAwayFramePayload struct {
 	LastStreamID        uint32 `json:"last_stream_id"`
-	AdditionalDebugData []byte `json:"additional_debug_data"`
+	AdditionalDebugData []byte `json:"additional_debug_data,omitempty"`
 	FrameErrorCode
 }
 
@@ -81,7 +124,7 @@ func (fni FrameNameID) MarshalJSON() ([]byte, error) {
 }
 
 type FrameHeaderFields struct {
-	HeaderFields map[string]string `json:"header_fields"`
+	HeaderFields map[string]string `json:"header_fields,omitempty"`
 }
 
 type FramePriority struct {
@@ -112,11 +155,4 @@ type FrameWindowSizeGroup struct {
 type FrameWindowSize struct {
 	Connection WindowSize `json:"connection"`
 	Stream     WindowSize `json:"stream"`
-}
-
-func NewFrame() *Frame {
-	return &Frame{
-		Time:  time.Now().UnixNano(),
-		Flags: []FrameNameID{},
-	}
 }

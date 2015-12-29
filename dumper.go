@@ -81,55 +81,52 @@ type FrameDumper struct {
 }
 
 func (fd *FrameDumper) Connect() {
-	fd.PrintMessage(0, "Connected", nil, true)
+	e := NewEvent(EventConnect, true, fd.RemoteAddr, 0)
+	e.Message = "Connected"
+	fd.PrintEvent(e)
 }
 
 func (fd *FrameDumper) Close() {
-	fd.PrintMessage(0, "Closed", nil, true)
+	e := NewEvent(EventClose, true, fd.RemoteAddr, 0)
+	e.Message = "Closed"
+	fd.PrintEvent(e)
 }
 
 func (fd *FrameDumper) DumpConnectionState(state tls.ConnectionState) {
-	msg := fmt.Sprintf("Negotiated Protocol: %s", state.NegotiatedProtocol)
-	fd.PrintMessage(0, msg, nil, true)
+	e := NewEvent(EventConnectionState, true, fd.RemoteAddr, 0)
+	e.State = NewState(state.NegotiatedProtocol)
+	fd.PrintEvent(e)
 }
 
 func (fd *FrameDumper) DumpFrame(chunk []byte, remote bool) {
 	callback := func(frame http2.Frame) error {
-		f := fd.DumpFrameHeader(frame, remote)
+		e := NewEvent(EventFrame, remote, fd.RemoteAddr, frame.Header().StreamID)
+		e.Frame = fd.DumpFrameHeader(frame, remote)
 
 		switch frame := frame.(type) {
 		case *http2.DataFrame:
-			f.Payload = fd.DumpDataFrame(frame, remote)
+			e.Frame.Payload = fd.DumpDataFrame(frame, remote)
 		case *http2.HeadersFrame:
-			f.Payload = fd.DumpHeadersFrame(frame, remote)
+			e.Frame.Payload = fd.DumpHeadersFrame(frame, remote)
 		case *http2.PriorityFrame:
-			f.Payload = fd.DumpPriorityFrame(frame, remote)
+			e.Frame.Payload = fd.DumpPriorityFrame(frame, remote)
 		case *http2.RSTStreamFrame:
-			f.Payload = fd.DumpRSTStreamFrame(frame, remote)
+			e.Frame.Payload = fd.DumpRSTStreamFrame(frame, remote)
 		case *http2.SettingsFrame:
-			f.Payload = fd.DumpSettingsFrame(frame, remote)
+			e.Frame.Payload = fd.DumpSettingsFrame(frame, remote)
 		case *http2.PushPromiseFrame:
-			f.Payload = fd.DumpPushPromiseFrame(frame, remote)
+			e.Frame.Payload = fd.DumpPushPromiseFrame(frame, remote)
 		case *http2.PingFrame:
-			f.Payload = fd.DumpPingFrame(frame, remote)
+			e.Frame.Payload = fd.DumpPingFrame(frame, remote)
 		case *http2.GoAwayFrame:
-			f.Payload = fd.DumpGoAwayFrame(frame, remote)
+			e.Frame.Payload = fd.DumpGoAwayFrame(frame, remote)
 		case *http2.WindowUpdateFrame:
-			f.Payload = fd.DumpWindowUpdateFrame(frame, remote)
+			e.Frame.Payload = fd.DumpWindowUpdateFrame(frame, remote)
 		case *http2.ContinuationFrame:
-			f.Payload = fd.DumpContinuationFrame(frame, remote)
+			e.Frame.Payload = fd.DumpContinuationFrame(frame, remote)
 		}
 
-		if fd.Formatter == JSONFormatter {
-			j, err := json.Marshal(f)
-			if err != nil {
-				logger.Printf("JSON Error: %s\n", err)
-			} else {
-				fmt.Println(string(j))
-			}
-		} else {
-			fd.PrintFrame(f, remote)
-		}
+		fd.PrintEvent(e)
 
 		return nil
 	}
@@ -145,11 +142,6 @@ func (fd *FrameDumper) DumpFrameHeader(frame http2.Frame, remote bool) *Frame {
 	header := frame.Header()
 
 	f := NewFrame()
-	f.Remote = remote
-	f.RemoteAddr = fd.RemoteAddr.(*net.TCPAddr).IP
-	f.RemotePort = fd.RemoteAddr.(*net.TCPAddr).Port
-	f.ConnectionID = fd.RemoteAddr.String()
-	f.StreamID = header.StreamID
 	f.Length = header.Length
 	f.Type = FrameNameID{
 		ID:   uint8(header.Type),
@@ -375,29 +367,29 @@ func (fd *FrameDumper) DumpContinuationFrame(frame *http2.ContinuationFrame, rem
 	return p
 }
 
-func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {
-	var flowStr string
+func (fd *FrameDumper) PrintEvent(e *Event) {
+	if fd.Formatter == JSONFormatter {
+		j, err := json.Marshal(e)
+		if err != nil {
+			logger.Printf("JSON Error: %s\n", err)
+		} else {
+			fmt.Println(string(j))
+		}
+		return
+	}
 
-	if remote {
-		flowStr = color("cyan", "==>")
+	if e.Type == EventFrame {
+		fd.PrintFrame(e)
 	} else {
-		flowStr = color("magenta", "<==")
+		fd.PrintMessage(e.StreamID, e.Message, nil, e.Remote)
 	}
-	delimiter := color("gray", "|")
-
-	log := []string{}
-	log = append(log, fmt.Sprintf("%s [%s] [%3d] %s", flowStr, fd.ID, streamID, msg))
-	for _, d := range data {
-		log = append(log, fmt.Sprintf("%s%s %s", fd.indent, delimiter, d))
-	}
-
-	fmt.Println(strings.Join(log, "\n"))
 }
 
-func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
-	var msgColor string
+func (fd *FrameDumper) PrintFrame(e *Event) {
+	frame := e.Frame
 
-	if remote {
+	var msgColor string
+	if e.Remote {
 		msgColor = "cyan"
 	} else {
 		msgColor = "magenta"
@@ -508,7 +500,26 @@ func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 		}
 	}
 
-	fd.PrintMessage(frame.StreamID, msg, data, remote)
+	fd.PrintMessage(e.StreamID, msg, data, e.Remote)
+}
+
+func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {
+	var flowStr string
+
+	if remote {
+		flowStr = color("cyan", "==>")
+	} else {
+		flowStr = color("magenta", "<==")
+	}
+	delimiter := color("gray", "|")
+
+	log := []string{}
+	log = append(log, fmt.Sprintf("%s [%s] [%3d] %s", flowStr, fd.ID, streamID, msg))
+	for _, d := range data {
+		log = append(log, fmt.Sprintf("%s%s %s", fd.indent, delimiter, d))
+	}
+
+	fmt.Println(strings.Join(log, "\n"))
 }
 
 func NewFrameDumper(addr net.Addr, formatter Formatter) *FrameDumper {

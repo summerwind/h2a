@@ -21,6 +21,7 @@ func main() {
 	originHost := flag.String("H", "", "")
 	certPath := flag.String("c", "", "")
 	keyPath := flag.String("k", "", "")
+	logFormat := flag.String("l", "default", "")
 	version := flag.Bool("version", false, "")
 
 	flag.Usage = func() {
@@ -32,6 +33,7 @@ func main() {
 		fmt.Println("  -H:        Origin host.")
 		fmt.Println("  -c:        Certificate file.")
 		fmt.Println("  -k:        Certificate key file.")
+		fmt.Println("  -l:        Log format.")
 		fmt.Println("  --version: Display version information and exit.")
 		fmt.Println("  --help:    Display this help and exit.")
 		os.Exit(1)
@@ -57,6 +59,13 @@ func main() {
 	}
 	origin := fmt.Sprintf("%s:%d", *originHost, *originPort)
 
+	var formatter Formatter
+	if *logFormat == "json" {
+		formatter = JSONFormatter
+	} else {
+		formatter = GenericFormatter
+	}
+
 	cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)
 	if err != nil {
 		logger.Fatalln("Invalid certificate file")
@@ -80,17 +89,17 @@ func main() {
 			continue
 		}
 
-		go handlePeer(remoteConn, origin)
+		go handlePeer(remoteConn, origin, formatter)
 	}
 }
 
-func handlePeer(remoteConn net.Conn, originAddr string) {
+func handlePeer(remoteConn net.Conn, originAddr string, formatter Formatter) {
 	var originConn net.Conn
 	var err error
 
 	defer remoteConn.Close()
 
-	dumper := NewFrameDumper(remoteConn.RemoteAddr())
+	dumper := NewFrameDumper(remoteConn.RemoteAddr(), formatter)
 	defer dumper.Close()
 
 	remoteCh, remoteErrCh := handleConnection(remoteConn)

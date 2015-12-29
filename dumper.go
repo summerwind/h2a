@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
@@ -58,93 +59,17 @@ var flagName = map[http2.FrameType]map[http2.Flags]string{
 	},
 }
 
-type Frame struct {
-	Time         uint64          `json:"time"`
-	Remote       bool            `json:"remote"`
-	RemoteAddr   string          `json:"remote_addr"`
-	RemotePort   uint16          `json:"remote_port"`
-	ConnectionID string          `json:"connection_id"`
-	StreamID     uint32          `json:"stream_id"`
-	Type         http2.FrameType `json:"type"`
-	Length       uint32          `json:"length"`
-	Flags        []http2.Flags   `json:"flags"`
-	Payload      interface{}     `json:"payload"`
-}
+type Formatter int
 
-type FramePayload interface{}
-
-type DataFramePayload struct {
-	FrameWindowSizeGroup
-}
-
-type HeadersFramePayload struct {
-	FramePriority
-	FrameHeaderFields
-}
-
-type PriorityFramePayload struct {
-	FramePriority
-}
-
-type RSTStreamFramePayload struct {
-	FrameErrorCode
-}
-
-type SettingsFramePayload struct {
-	Parameters map[http2.SettingID]uint32 `json:"parameters"`
-}
-
-type PushPromiseFramePayload struct {
-	PromisedStreamID uint32 `json:"promised_stream_id"`
-	FrameHeaderFields
-}
-
-type PingFramePayload struct {
-	OpaqueData [8]byte `json:"opaque_data"`
-}
-
-type GoAwayFramePayload struct {
-	LastStreamID        uint32 `json:"last_stream_id"`
-	AdditionalDebugData []byte `json:"additional_debug_data"`
-	FrameErrorCode
-}
-
-type WindowUpdateFramePayload struct {
-	WindowSizeIncrement uint32 `json:"window_size_increment"`
-	FrameWindowSizeGroup
-}
-
-type ContinuationFramePayload struct {
-	FrameHeaderFields
-}
-
-type FrameHeaderFields struct {
-	HeaderFields map[string]string `json:"header_fields"`
-}
-
-type FramePriority struct {
-	Priority         bool   `json:"-"`
-	StreamDependency uint32 `json:"stream_dependency"`
-	Weight           uint8  `json:"weight"`
-	Exclusive        bool   `json:"exclusive"`
-}
-
-type FrameErrorCode struct {
-	ErrorCode http2.ErrCode `json:"error_code"`
-}
-
-type FrameWindowSizeGroup struct {
-	WindowSize FrameWindowSize `json:"window_size"`
-}
-
-type FrameWindowSize struct {
-	Connection WindowSize `json:"connection"`
-	Stream     WindowSize `json:"stream"`
-}
+const (
+	GenericFormatter Formatter = iota
+	JSONFormatter
+)
 
 type FrameDumper struct {
 	ID         string
 	RemoteAddr net.Addr
+	Formatter  Formatter
 
 	remoteFramer *Framer
 	originFramer *Framer
@@ -170,7 +95,7 @@ func (fd *FrameDumper) DumpConnectionState(state tls.ConnectionState) {
 
 func (fd *FrameDumper) DumpFrame(chunk []byte, remote bool) {
 	callback := func(frame http2.Frame) error {
-		f := fd.DumpFrameHeader(frame)
+		f := fd.DumpFrameHeader(frame, remote)
 
 		switch frame := frame.(type) {
 		case *http2.DataFrame:
@@ -195,7 +120,16 @@ func (fd *FrameDumper) DumpFrame(chunk []byte, remote bool) {
 			f.Payload = fd.DumpContinuationFrame(frame, remote)
 		}
 
-		fd.PrintFrame(&f, remote)
+		if fd.Formatter == JSONFormatter {
+			j, err := json.Marshal(f)
+			if err != nil {
+				logger.Printf("JSON Error: %s\n", err)
+			} else {
+				fmt.Println(string(j))
+			}
+		} else {
+			fd.PrintFrame(f, remote)
+		}
 
 		return nil
 	}
@@ -207,21 +141,31 @@ func (fd *FrameDumper) DumpFrame(chunk []byte, remote bool) {
 	}
 }
 
-func (fd *FrameDumper) DumpFrameHeader(frame http2.Frame) Frame {
+func (fd *FrameDumper) DumpFrameHeader(frame http2.Frame, remote bool) *Frame {
 	header := frame.Header()
-	frameFlags := header.Flags
 
-	f := Frame{
-		StreamID: header.StreamID,
-		Type:     header.Type,
-		Length:   header.Length,
+	f := NewFrame()
+	f.Remote = remote
+	f.RemoteAddr = fd.RemoteAddr.(*net.TCPAddr).IP
+	f.RemotePort = fd.RemoteAddr.(*net.TCPAddr).Port
+	f.ConnectionID = fd.RemoteAddr.String()
+	f.StreamID = header.StreamID
+	f.Length = header.Length
+	f.Type = FrameNameID{
+		ID:   uint8(header.Type),
+		Name: header.Type.String(),
 	}
 
+	frameFlags := header.Flags
 	if frameFlags > 0 {
 		candidateFlags := flagName[header.Type]
 		for flag, _ := range candidateFlags {
 			if (flag & frameFlags) != 0 {
-				f.Flags = append(f.Flags, flag)
+				fni := FrameNameID{
+					ID:   uint8(flag),
+					Name: flagName[header.Type][flag],
+				}
+				f.Flags = append(f.Flags, fni)
 			}
 		}
 	}
@@ -328,9 +272,15 @@ func (fd *FrameDumper) DumpSettingsFrame(frame *http2.SettingsFrame, remote bool
 
 	frame.ForeachSetting(func(setting http2.Setting) error {
 		if p.Parameters == nil {
-			p.Parameters = map[http2.SettingID]uint32{}
+			p.Parameters = map[string]FrameSetting{}
 		}
-		p.Parameters[setting.ID] = setting.Val
+
+		fs := FrameSetting{
+			Name:  setting.ID.String(),
+			Value: setting.Val,
+			ID:    uint16(setting.ID),
+		}
+		p.Parameters[fs.Name] = fs
 
 		return nil
 	})
@@ -425,6 +375,25 @@ func (fd *FrameDumper) DumpContinuationFrame(frame *http2.ContinuationFrame, rem
 	return p
 }
 
+func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {
+	var flowStr string
+
+	if remote {
+		flowStr = color("cyan", "==>")
+	} else {
+		flowStr = color("magenta", "<==")
+	}
+	delimiter := color("gray", "|")
+
+	log := []string{}
+	log = append(log, fmt.Sprintf("%s [%s] [%3d] %s", flowStr, fd.ID, streamID, msg))
+	for _, d := range data {
+		log = append(log, fmt.Sprintf("%s%s %s", fd.indent, delimiter, d))
+	}
+
+	fmt.Println(strings.Join(log, "\n"))
+}
+
 func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 	var msgColor string
 
@@ -434,7 +403,7 @@ func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 		msgColor = "magenta"
 	}
 
-	frameType := color(msgColor, frame.Type.String())
+	frameType := color(msgColor, frame.Type.Name)
 	msg := fmt.Sprintf("%s Frame <Length:%d>", frameType, frame.Length)
 
 	data := []string{}
@@ -442,7 +411,7 @@ func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 	if len(frame.Flags) > 0 {
 		data = append(data, "Flags:")
 		for _, f := range frame.Flags {
-			data = append(data, fmt.Sprintf("  - %s (0x%x)", flagName[frame.Type][f], f))
+			data = append(data, fmt.Sprintf("  - %s (0x%x)", f.Name, f.ID))
 		}
 	}
 
@@ -496,8 +465,8 @@ func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 	case SettingsFramePayload:
 		if len(payload.Parameters) > 0 {
 			data = append(data, "Parameters:")
-			for s, v := range payload.Parameters {
-				data = append(data, fmt.Sprintf("  %s (0x%d): %d", s.String(), s, v))
+			for _, s := range payload.Parameters {
+				data = append(data, fmt.Sprintf("  %s (0x%d): %d", s.Name, s.ID, s.Value))
 			}
 		}
 
@@ -542,29 +511,11 @@ func (fd *FrameDumper) PrintFrame(frame *Frame, remote bool) {
 	fd.PrintMessage(frame.StreamID, msg, data, remote)
 }
 
-func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {
-	var flowStr string
-
-	if remote {
-		flowStr = color("cyan", "==>")
-	} else {
-		flowStr = color("magenta", "<==")
-	}
-	delimiter := color("gray", "|")
-
-	log := []string{}
-	log = append(log, fmt.Sprintf("%s [%s] [%3d] %s", flowStr, fd.ID, streamID, msg))
-	for _, d := range data {
-		log = append(log, fmt.Sprintf("%s%s %s", fd.indent, delimiter, d))
-	}
-
-	fmt.Println(strings.Join(log, "\n"))
-}
-
-func NewFrameDumper(addr net.Addr) *FrameDumper {
+func NewFrameDumper(addr net.Addr, formatter Formatter) *FrameDumper {
 	dumper := &FrameDumper{
 		ID:         addr.String(),
 		RemoteAddr: addr,
+		Formatter:  formatter,
 
 		remoteFramer: NewFramer(true),
 		originFramer: NewFramer(false),

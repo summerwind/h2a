@@ -9,8 +9,8 @@ type WindowSize struct {
 	delta   int32
 }
 
-func (ws *WindowSize) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("\"%d\"", ws.current)), nil
+func (ws WindowSize) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("%d", ws.current)), nil
 }
 
 type FlowController struct {

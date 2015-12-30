@@ -14,11 +14,17 @@ const VERSION = "v0.0.2"
 
 var logger = log.New(os.Stderr, "", 0)
 
+type OriginConfig struct {
+	Addr   string
+	Direct bool
+}
+
 func main() {
 	port := flag.Int("p", 0, "")
 	ip := flag.String("i", "127.0.0.1", "")
 	originPort := flag.Int("P", 0, "")
 	originHost := flag.String("H", "", "")
+	originDirect := flag.Bool("D", false, "")
 	certPath := flag.String("c", "", "")
 	keyPath := flag.String("k", "", "")
 	logFormat := flag.String("l", "default", "")
@@ -27,13 +33,14 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
 		fmt.Println("Options:")
-		fmt.Println("  -p:        Port. (Default: 443)")
-		fmt.Println("  -i:        IP Address. (Default: 127.0.0.1)")
-		fmt.Println("  -P:        Origin port.")
-		fmt.Println("  -H:        Origin host.")
-		fmt.Println("  -c:        Certificate file.")
-		fmt.Println("  -k:        Certificate key file.")
-		fmt.Println("  -l:        Log format.")
+		fmt.Println("  -p:        Port (Default: 443)")
+		fmt.Println("  -i:        IP Address (Default: 127.0.0.1)")
+		fmt.Println("  -P:        Origin port")
+		fmt.Println("  -H:        Origin host")
+		fmt.Println("  -D:        Use HTTP/2 direct mode to connect origin")
+		fmt.Println("  -c:        Certificate file")
+		fmt.Println("  -k:        Certificate key file")
+		fmt.Println("  -l:        Log format (default or json, Default: default)")
 		fmt.Println("  --version: Display version information and exit.")
 		fmt.Println("  --help:    Display this help and exit.")
 		os.Exit(1)
@@ -57,7 +64,10 @@ func main() {
 	if *originHost == "" {
 		logger.Fatalln("Origin host is not specified")
 	}
-	origin := fmt.Sprintf("%s:%d", *originHost, *originPort)
+	originConfig := OriginConfig{
+		Addr:   fmt.Sprintf("%s:%d", *originHost, *originPort),
+		Direct: *originDirect,
+	}
 
 	var formatter Formatter
 	if *logFormat == "json" {
@@ -89,11 +99,11 @@ func main() {
 			continue
 		}
 
-		go handlePeer(remoteConn, origin, formatter)
+		go handlePeer(remoteConn, originConfig, formatter)
 	}
 }
 
-func handlePeer(remoteConn net.Conn, originAddr string, formatter Formatter) {
+func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Formatter) {
 	var originConn net.Conn
 	var err error
 
@@ -115,8 +125,12 @@ func handlePeer(remoteConn net.Conn, originAddr string, formatter Formatter) {
 		config.ServerName = connState.ServerName
 		config.InsecureSkipVerify = true
 
-		dialer := new(net.Dialer)
-		originConn, err = tls.DialWithDialer(dialer, "tcp", originAddr, config)
+		if originConfig.Direct {
+			originConn, err = net.Dial("tcp", originConfig.Addr)
+		} else {
+			dialer := new(net.Dialer)
+			originConn, err = tls.DialWithDialer(dialer, "tcp", originConfig.Addr, config)
+		}
 		if err != nil {
 			logger.Printf("Unable to connect to the origin: %s", err)
 			return

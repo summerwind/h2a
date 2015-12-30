@@ -49,7 +49,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		logger.Printf("h2analyzer %s\n", VERSION)
+		logger.Printf("h2a %s\n", VERSION)
 		os.Exit(0)
 	}
 

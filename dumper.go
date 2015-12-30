@@ -62,7 +62,7 @@ var flagName = map[http2.FrameType]map[http2.Flags]string{
 type Formatter int
 
 const (
-	GenericFormatter Formatter = iota
+	DefaultFormatter Formatter = iota
 	JSONFormatter
 )
 

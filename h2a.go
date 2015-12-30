@@ -63,7 +63,7 @@ func main() {
 	if *logFormat == "json" {
 		formatter = JSONFormatter
 	} else {
-		formatter = GenericFormatter
+		formatter = DefaultFormatter
 	}
 
 	cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)

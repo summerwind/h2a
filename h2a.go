@@ -83,7 +83,7 @@ func main() {
 
 	config := &tls.Config{}
 	config.Certificates = []tls.Certificate{cert}
-	config.NextProtos = append(config.NextProtos, "h2", "h2-16", "h2-15", "h2-14")
+	config.NextProtos = append(config.NextProtos, "h2", "h2-16", "h2-15", "h2-14", "http/1.1")
 
 	server, err := tls.Listen("tcp", addr, config)
 	if err != nil {
@@ -106,6 +106,7 @@ func main() {
 func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Formatter) {
 	var originConn net.Conn
 	var err error
+	h2 := true
 
 	defer remoteConn.Close()
 
@@ -117,13 +118,21 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 	select {
 	case chunk := <-remoteCh:
 		connState := remoteConn.(*tls.Conn).ConnectionState()
+
+		if connState.NegotiatedProtocol == "" {
+			connState.NegotiatedProtocol = "http/1.1"
+		}
+		if connState.NegotiatedProtocol == "http/1.1" {
+			h2 = true
+		}
+
 		dumper.DumpConnectionState(connState)
 
 		config := &tls.Config{}
-		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
 		config.CipherSuites = []uint16{connState.CipherSuite}
 		config.ServerName = connState.ServerName
 		config.InsecureSkipVerify = true
+		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
 
 		if originConfig.Direct {
 			originConn, err = net.Dial("tcp", originConfig.Addr)
@@ -144,7 +153,9 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 			return
 		}
 
-		dumper.DumpFrame(chunk, true)
+		if h2 {
+			dumper.DumpFrame(chunk, true)
+		}
 
 	case err := <-remoteErrCh:
 		if err != io.EOF {
@@ -163,7 +174,10 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 				logger.Printf("Unable to write data to the origin: %s", err)
 				return
 			}
-			dumper.DumpFrame(chunk, true)
+
+			if h2 {
+				dumper.DumpFrame(chunk, true)
+			}
 
 		case err := <-remoteErrCh:
 			if err != io.EOF {
@@ -177,7 +191,10 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 				logger.Printf("Unable to write data to the connection: %s", err)
 				return
 			}
-			dumper.DumpFrame(chunk, false)
+
+			if h2 {
+				dumper.DumpFrame(chunk, false)
+			}
 
 		case err := <-originErrCh:
 			if err != io.EOF {

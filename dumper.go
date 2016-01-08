@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -512,6 +513,7 @@ func (fd *FrameDumper) PrintConnectionState(e *Event) {
 }
 
 func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, remote bool) {
+	var buffer bytes.Buffer
 	var flowStr string
 
 	if remote {
@@ -521,13 +523,12 @@ func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, 
 	}
 	delimiter := color("gray", "|")
 
-	log := []string{}
-	log = append(log, fmt.Sprintf("%s [%s] [%3d] %s", flowStr, fd.ID, streamID, msg))
+	buffer.WriteString(fmt.Sprintf("%s [%s] [%3d] %s\n", flowStr, fd.ID, streamID, msg))
 	for _, d := range data {
-		log = append(log, fmt.Sprintf("%s%s %s", fd.indent, delimiter, d))
+		buffer.WriteString(fmt.Sprintf("%s%s %s\n", fd.indent, delimiter, d))
 	}
 
-	fmt.Println(strings.Join(log, "\n"))
+	fmt.Print(buffer.String())
 }
 
 func NewFrameDumper(addr net.Addr, formatter Formatter) *FrameDumper {

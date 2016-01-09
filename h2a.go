@@ -20,7 +20,7 @@ type OriginConfig struct {
 }
 
 func main() {
-	port := flag.String("p", "", "")
+	port := flag.String("p", "443", "")
 	ip := flag.String("i", "127.0.0.1", "")
 	originPort := flag.String("P", "", "")
 	originHost := flag.String("H", "", "")
@@ -53,9 +53,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *port == "" {
-		*port = "443"
-	}
 	addr := net.JoinHostPort(*ip, *port)
 
 	if *originPort == "" {

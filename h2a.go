@@ -20,9 +20,9 @@ type OriginConfig struct {
 }
 
 func main() {
-	port := flag.Int("p", 0, "")
+	port := flag.String("p", "", "")
 	ip := flag.String("i", "127.0.0.1", "")
-	originPort := flag.Int("P", 0, "")
+	originPort := flag.String("P", "", "")
 	originHost := flag.String("H", "", "")
 	originDirect := flag.Bool("D", false, "")
 	certPath := flag.String("c", "", "")
@@ -53,19 +53,19 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *port == 0 {
-		*port = 443
+	if *port == "" {
+		*port = "443"
 	}
-	addr := fmt.Sprintf("%s:%d", *ip, *port)
+	addr := net.JoinHostPort(*ip, *port)
 
-	if *originPort == 0 {
+	if *originPort == "" {
 		logger.Fatalln("Origin port is not specified")
 	}
 	if *originHost == "" {
 		logger.Fatalln("Origin host is not specified")
 	}
 	originConfig := OriginConfig{
-		Addr:   fmt.Sprintf("%s:%d", *originHost, *originPort),
+		Addr:   net.JoinHostPort(*originHost, *originPort),
 		Direct: *originDirect,
 	}
 
@@ -137,8 +137,7 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 		if originConfig.Direct {
 			originConn, err = net.Dial("tcp", originConfig.Addr)
 		} else {
-			dialer := new(net.Dialer)
-			originConn, err = tls.DialWithDialer(dialer, "tcp", originConfig.Addr, config)
+			originConn, err = tls.Dial("tcp", originConfig.Addr, config)
 		}
 		if err != nil {
 			logger.Printf("Unable to connect to the origin: %s", err)

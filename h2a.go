@@ -27,7 +27,7 @@ func main() {
 	originDirect := flag.Bool("D", false, "")
 	certPath := flag.String("c", "", "")
 	keyPath := flag.String("k", "", "")
-	logFormat := flag.String("l", "default", "")
+	outputLogFormat := flag.String("o", "default", "")
 	version := flag.Bool("version", false, "")
 
 	flag.Usage = func() {
@@ -40,7 +40,7 @@ func main() {
 		fmt.Println("  -D:        Use HTTP/2 direct mode to connect origin")
 		fmt.Println("  -c:        Certificate file")
 		fmt.Println("  -k:        Certificate key file")
-		fmt.Println("  -l:        Log format (default or json, Default: default)")
+		fmt.Println("  -o:        Output log format (default or json, Default: default)")
 		fmt.Println("  --version: Display version information and exit.")
 		fmt.Println("  --help:    Display this help and exit.")
 		os.Exit(1)
@@ -70,7 +70,7 @@ func main() {
 	}
 
 	var formatter Formatter
-	if *logFormat == "json" {
+	if *outputLogFormat == "json" {
 		formatter = JSONFormatter
 	} else {
 		formatter = DefaultFormatter

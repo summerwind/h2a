@@ -30,7 +30,7 @@ Options:
   -D:        Use HTTP/2 direct mode to connect origin
   -c:        Certificate file
   -k:        Certificate key file
-  -o:        Log format (default or json, Default: default)
+  -o:        Output log format (default or json, Default: default)
   --version: Display version information and exit.
   --help:    Display this help and exit.
 ```

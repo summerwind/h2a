@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-const VERSION = "v0.0.2"
+const VERSION = "v1.0.0"
 
 var logger = log.New(os.Stderr, "", 0)
 

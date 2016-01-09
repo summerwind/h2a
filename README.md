@@ -15,7 +15,7 @@ Go to the [releases page](https://github.com/summerwind/h2a/releases), find the 
 It is also possible to build specific version.
 
 1. Make sure you have Go 1.5 and set GOPATH appropriately
-2. Run `go get gopkg.in/summerwind/h2a.v0`
+2. Run `go get gopkg.in/summerwind/h2a.v1`
 
 ## Usage
 
@@ -30,7 +30,7 @@ Options:
   -D:        Use HTTP/2 direct mode to connect origin
   -c:        Certificate file
   -k:        Certificate key file
-  -l:        Log format (default or json, Default: default)
+  -o:        Log format (default or json, Default: default)
   --version: Display version information and exit.
   --help:    Display this help and exit.
 ```

@@ -22,6 +22,7 @@ type OriginConfig struct {
 func main() {
 	port := flag.String("p", "443", "")
 	ip := flag.String("i", "127.0.0.1", "")
+	direct := flag.Bool("d", false, "")
 	originPort := flag.String("P", "", "")
 	originHost := flag.String("H", "", "")
 	originDirect := flag.Bool("D", false, "")
@@ -35,6 +36,7 @@ func main() {
 		fmt.Println("Options:")
 		fmt.Println("  -p:        Port (Default: 443)")
 		fmt.Println("  -i:        IP Address (Default: 127.0.0.1)")
+		fmt.Println("  -d:        Use HTTP/2 direct mode")
 		fmt.Println("  -P:        Origin port")
 		fmt.Println("  -H:        Origin host")
 		fmt.Println("  -D:        Use HTTP/2 direct mode to connect origin")
@@ -73,16 +75,23 @@ func main() {
 		formatter = DefaultFormatter
 	}
 
-	cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)
-	if err != nil {
-		logger.Fatalln("Invalid certificate file")
+	var server net.Listener
+	var err error
+	if *direct {
+		server, err = net.Listen("tcp", addr)
+	} else {
+		cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)
+		if err != nil {
+			logger.Fatalln("Invalid certificate file")
+		}
+
+		config := &tls.Config{}
+		config.Certificates = []tls.Certificate{cert}
+		config.NextProtos = append(config.NextProtos, "h2", "h2-16", "h2-15", "h2-14", "http/1.1")
+
+		server, err = tls.Listen("tcp", addr, config)
 	}
 
-	config := &tls.Config{}
-	config.Certificates = []tls.Certificate{cert}
-	config.NextProtos = append(config.NextProtos, "h2", "h2-16", "h2-15", "h2-14", "http/1.1")
-
-	server, err := tls.Listen("tcp", addr, config)
 	if err != nil {
 		logger.Fatalf("Could not bind address - %s\n", addr)
 	}
@@ -104,6 +113,7 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 	var originConn net.Conn
 	var err error
 	h2 := true
+	_, useTls := remoteConn.(*tls.Conn)
 
 	defer remoteConn.Close()
 
@@ -114,26 +124,32 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 
 	select {
 	case chunk := <-remoteCh:
-		connState := remoteConn.(*tls.Conn).ConnectionState()
+		var connState tls.ConnectionState
 
-		if connState.NegotiatedProtocol == "" {
-			connState.NegotiatedProtocol = "http/1.1"
+		if useTls {
+			connState = remoteConn.(*tls.Conn).ConnectionState()
+
+			if connState.NegotiatedProtocol == "" {
+				connState.NegotiatedProtocol = "http/1.1"
+			}
+			if connState.NegotiatedProtocol == "http/1.1" {
+				h2 = true
+			}
+
+			dumper.DumpConnectionState(connState)
 		}
-		if connState.NegotiatedProtocol == "http/1.1" {
-			h2 = true
-		}
-
-		dumper.DumpConnectionState(connState)
-
-		config := &tls.Config{}
-		config.CipherSuites = []uint16{connState.CipherSuite}
-		config.ServerName = connState.ServerName
-		config.InsecureSkipVerify = true
-		config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
 
 		if originConfig.Direct {
 			originConn, err = net.Dial("tcp", originConfig.Addr)
 		} else {
+			config := &tls.Config{}
+			if useTls {
+				config.CipherSuites = []uint16{connState.CipherSuite}
+				config.ServerName = connState.ServerName
+			}
+			config.InsecureSkipVerify = true
+			config.NextProtos = append(config.NextProtos, connState.NegotiatedProtocol)
+
 			originConn, err = tls.Dial("tcp", originConfig.Addr, config)
 		}
 		if err != nil {

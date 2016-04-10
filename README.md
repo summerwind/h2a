@@ -25,6 +25,7 @@ Usage: h2a [OPTIONS]
 Options:
   -p:        Port (Default: 443)
   -i:        IP Address (Default: 127.0.0.1)
+  -d:        Use HTTP/2 direct mode
   -P:        Origin port
   -H:        Origin host
   -D:        Use HTTP/2 direct mode to connect origin

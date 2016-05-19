@@ -121,6 +121,10 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 	defer dumper.Close()
 
 	remoteCh, remoteErrCh := handleConnection(remoteConn)
+	dumpDataCh, dumpDoneCh := handleFrameDumper(dumper)
+	defer func() {
+		dumpDoneCh <- true
+	}()
 
 	select {
 	case chunk := <-remoteCh:
@@ -166,7 +170,7 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 		}
 
 		if h2 {
-			dumper.DumpFrame(chunk, true)
+			dumpDataCh <- &DumpData{chunk, true}
 		}
 
 	case err := <-remoteErrCh:
@@ -188,13 +192,14 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 			}
 
 			if h2 {
-				dumper.DumpFrame(chunk, true)
+				dumpDataCh <- &DumpData{chunk, true}
 			}
 
 		case err := <-remoteErrCh:
 			if err != io.EOF {
 				logger.Printf("Connection error: %s", err)
 			}
+
 			return
 
 		case chunk := <-originCh:
@@ -205,7 +210,7 @@ func handlePeer(remoteConn net.Conn, originConfig OriginConfig, formatter Format
 			}
 
 			if h2 {
-				dumper.DumpFrame(chunk, false)
+				dumpDataCh <- &DumpData{chunk, false}
 			}
 
 		case err := <-originErrCh:
@@ -236,4 +241,27 @@ func handleConnection(conn net.Conn) (<-chan []byte, <-chan error) {
 	}()
 
 	return dataCh, errCh
+}
+
+func handleFrameDumper(dumper *FrameDumper) (chan *DumpData, chan bool) {
+	dataCh := make(chan *DumpData, 1024)
+	doneCh := make(chan bool, 1)
+
+	go func() {
+		for {
+			select {
+			case d := <-dataCh:
+				dumper.DumpFrame(d.Chunk, d.Remote)
+			case <-doneCh:
+				break
+			}
+		}
+	}()
+
+	return dataCh, doneCh
+}
+
+type DumpData struct {
+	Chunk  []byte
+	Remote bool
 }

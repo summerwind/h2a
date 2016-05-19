@@ -223,7 +223,7 @@ func handleConnection(conn net.Conn) (<-chan []byte, <-chan error) {
 
 	go func() {
 		for {
-			buf := make([]byte, 16384)
+			buf := make([]byte, 262144)
 
 			n, err := conn.Read(buf)
 			if err != nil {

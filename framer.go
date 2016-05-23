@@ -29,25 +29,32 @@ func (f *Framer) ReadFrame(chunk []byte, callback func(http2.Frame) error) {
 		}
 	}
 
+	available := false
 	chunk = append(f.chunkBuf, chunk...)
 
-	cLen := len(chunk)
+	for {
+		cLen := len(chunk)
+		if cLen < frameHeaderLen {
+			break
+		}
 
-	if cLen < frameHeaderLen {
-		f.chunkBuf = chunk
-		return
+		pLen := int(uint32(chunk[0])<<16 | uint32(chunk[1])<<8 | uint32(chunk[2]))
+		pEnd := (frameHeaderLen + pLen)
+
+		if cLen < pEnd {
+			break
+		}
+
+		f.readBuf.Write(chunk[:pEnd])
+		chunk = chunk[pEnd:]
+		available = true
+		fmt.Printf("Len: %d\n", len(chunk))
 	}
 
-	pLen := int(uint32(chunk[0])<<16 | uint32(chunk[1])<<8 | uint32(chunk[2]))
-	pEnd := (frameHeaderLen + pLen)
-
-	if cLen < pEnd {
-		f.chunkBuf = chunk
+	f.chunkBuf = chunk
+	if !available {
 		return
 	}
-
-	f.readBuf.Write(chunk[:pEnd])
-	f.chunkBuf = chunk[pEnd:]
 
 	for {
 		frame, err := f.framer.ReadFrame()

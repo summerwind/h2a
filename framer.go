@@ -30,27 +30,24 @@ func (f *Framer) ReadFrame(chunk []byte, callback func(http2.Frame) error) {
 	}
 
 	chunk = append(f.chunkBuf, chunk...)
-	if len(chunk) < frameHeaderLen {
+
+	cLen := len(chunk)
+
+	if cLen < frameHeaderLen {
 		f.chunkBuf = chunk
 		return
 	}
 
-	n := 0
-	for {
-		payload := int(uint32(chunk[n])<<16 | uint32(chunk[n+1])<<8 | uint32(chunk[n+2]))
-		last := (n + frameHeaderLen + payload)
+	pLen := int(uint32(chunk[0])<<16 | uint32(chunk[1])<<8 | uint32(chunk[2]))
+	pEnd := (frameHeaderLen + pLen)
 
-		if last <= len(chunk) {
-			n = last
-		}
-
-		if last >= len(chunk) {
-			break
-		}
+	if cLen < pEnd {
+		f.chunkBuf = chunk
+		return
 	}
 
-	f.chunkBuf = chunk[n:]
-	f.readBuf.Write(chunk[:n])
+	f.readBuf.Write(chunk[:pEnd])
+	f.chunkBuf = chunk[pEnd:]
 
 	for {
 		frame, err := f.framer.ReadFrame()

@@ -48,7 +48,6 @@ func (f *Framer) ReadFrame(chunk []byte, callback func(http2.Frame) error) {
 		f.readBuf.Write(chunk[:pEnd])
 		chunk = chunk[pEnd:]
 		available = true
-		fmt.Printf("Len: %d\n", len(chunk))
 	}
 
 	f.chunkBuf = chunk

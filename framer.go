@@ -3,9 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
+
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
-	"io"
 )
 
 const frameHeaderLen = 9

@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/net/http2"
 	"net"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 
 type Event struct {
 	Time         int64  `json:"time"`
+	Duration     int64  `json:"duration"`
 	Remote       bool   `json:"remote"`
 	RemoteAddr   net.IP `json:"remote_addr"`
 	RemotePort   int    `json:"remote_port"`
@@ -27,14 +29,22 @@ type Event struct {
 	Frame        *Frame `json:"frame,omitempty"`
 }
 
-func NewEvent(eventType string, remote bool, addr net.Addr, streamID uint32) *Event {
+func NewEvent(eventType string, remote bool, addr net.Addr, connID string, streamID uint32, start int64) *Event {
+	now := time.Now().UnixNano()
+	dur := int64(0)
+
+	if start > 0 {
+		dur = now - start
+	}
+
 	return &Event{
-		Time:         time.Now().UnixNano(),
+		Time:         now,
+		Duration:     dur,
 		Type:         eventType,
 		Remote:       remote,
 		RemoteAddr:   addr.(*net.TCPAddr).IP,
 		RemotePort:   addr.(*net.TCPAddr).Port,
-		ConnectionID: addr.String(),
+		ConnectionID: connID,
 		StreamID:     streamID,
 		Frame:        nil,
 	}

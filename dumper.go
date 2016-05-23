@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/hpack"
 	"net"
 	"strings"
+	"time"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 func color(color string, msg string) string {
@@ -72,6 +75,8 @@ type FrameDumper struct {
 	RemoteAddr net.Addr
 	Formatter  Formatter
 
+	start int64
+
 	remoteFramer *Framer
 	originFramer *Framer
 
@@ -82,26 +87,27 @@ type FrameDumper struct {
 }
 
 func (fd *FrameDumper) Connect() {
-	e := NewEvent(EventConnect, true, fd.RemoteAddr, 0)
+	e := NewEvent(EventConnect, true, fd.RemoteAddr, fd.ID, 0, 0)
 	e.Message = "Connected"
 	fd.PrintEvent(e)
+	fd.start = e.Time
 }
 
 func (fd *FrameDumper) Close() {
-	e := NewEvent(EventClose, true, fd.RemoteAddr, 0)
+	e := NewEvent(EventClose, true, fd.RemoteAddr, fd.ID, 0, fd.start)
 	e.Message = "Closed"
 	fd.PrintEvent(e)
 }
 
 func (fd *FrameDumper) DumpConnectionState(state tls.ConnectionState) {
-	e := NewEvent(EventConnectionState, true, fd.RemoteAddr, 0)
+	e := NewEvent(EventConnectionState, true, fd.RemoteAddr, fd.ID, 0, fd.start)
 	e.State = NewState(state.NegotiatedProtocol)
 	fd.PrintEvent(e)
 }
 
 func (fd *FrameDumper) DumpFrame(chunk []byte, remote bool) {
 	callback := func(frame http2.Frame) error {
-		e := NewEvent(EventFrame, remote, fd.RemoteAddr, frame.Header().StreamID)
+		e := NewEvent(EventFrame, remote, fd.RemoteAddr, fd.ID, frame.Header().StreamID, fd.start)
 		e.Frame = fd.DumpFrameHeader(frame, remote)
 
 		switch frame := frame.(type) {
@@ -402,7 +408,7 @@ func (fd *FrameDumper) PrintFrame(e *Event) {
 	frameType := color(msgColor, frame.Type.Name)
 	msg := fmt.Sprintf("%s Frame <Length:%d>", frameType, frame.Length)
 
-	data := []string{}
+	data := make([]string, 0, 256)
 
 	if len(frame.Flags) > 0 {
 		data = append(data, "Flags:")
@@ -532,10 +538,17 @@ func (fd *FrameDumper) PrintMessage(streamID uint32, msg string, data []string, 
 }
 
 func NewFrameDumper(addr net.Addr, formatter Formatter) *FrameDumper {
+	now := time.Now().UnixNano()
+
+	id := fmt.Sprintf("%d:%s", now, addr.String())
+	idHex := fmt.Sprintf("%x", md5.Sum([]byte(id)))
+
 	dumper := &FrameDumper{
-		ID:         addr.String(),
+		ID:         idHex,
 		RemoteAddr: addr,
 		Formatter:  formatter,
+
+		start: 0,
 
 		remoteFramer: NewFramer(true),
 		originFramer: NewFramer(false),
